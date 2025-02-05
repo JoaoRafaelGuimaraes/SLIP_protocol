@@ -31,20 +31,8 @@ class CamadaEnlace:
         fornecido como string (no formato x.y.z.w). A camada de enlace se
         responsabilizará por encontrar em qual enlace se encontra o next_hop.
         """
-        # Definição dos bytes especiais do protocolo SLIP
-        END = b'\xC0'  # Delimitador de quadro
-        ESC = b'\xDB'  # Byte de escape
-        ESC_END = b'\xDB\xDC'  # Representação de 0xC0 dentro do datagrama
-        ESC_ESC = b'\xDB\xDD'  # Representação de 0xDB dentro do datagrama
-        
-        # Substituir os bytes especiais no datagrama para evitar ambiguidades
-        datagrama = datagrama.replace(ESC, ESC_ESC).replace(END, ESC_END)
-        
-        # Adicionar os delimitadores de início e fim ao datagrama
-        quadro = END + datagrama + END
-        
-        # Encontra o Enlace capaz de alcançar next_hop e envia o quadro por ele
-        self.enlaces[next_hop].enviar(quadro)
+        # Encontra o Enlace capaz de alcançar next_hop e envia por ele
+        self.enlaces[next_hop].enviar(datagrama)
 
     def _callback(self, datagrama):
         if self.callback:
@@ -60,17 +48,63 @@ class Enlace:
         self.callback = callback
 
     def enviar(self, datagrama):
-        # TODO: Preencha aqui com o código para enviar o datagrama pela linha
-        # serial, fazendo corretamente a delimitação de quadros e o escape de
-        # sequências especiais, de acordo com o protocolo CamadaEnlace (RFC 1055).
-        pass
+        """
+        Implementação do envio de quadros conforme o protocolo SLIP (RFC 1055).
+        Adiciona os delimitadores de início e fim e faz o escape de bytes especiais.
+        """
+        # Definição dos bytes especiais do protocolo SLIP
+        END = b'\xC0'  # Delimitador de quadro
+        ESC = b'\xDB'  # Byte de escape
+        ESC_END = b'\xDB\xDC'  # Representação de 0xC0 dentro do datagrama
+        ESC_ESC = b'\xDB\xDD'  # Representação de 0xDB dentro do datagrama
+        
+        # Substituir os bytes especiais no datagrama para evitar ambiguidades
+        datagrama = datagrama.replace(ESC, ESC_ESC).replace(END, ESC_END)
+        
+        # Adicionar os delimitadores de início e fim ao datagrama
+        quadro = END + datagrama + END
+        
+        # Enviar o quadro formatado pela linha serial
+        self.linha_serial.enviar(quadro)
 
     def __raw_recv(self, dados):
-        # TODO: Preencha aqui com o código para receber dados da linha serial.
-        # Trate corretamente as sequências de escape. Quando ler um quadro
-        # completo, repasse o datagrama contido nesse quadro para a camada
-        # superior chamando self.callback. Cuidado pois o argumento dados pode
-        # vir quebrado de várias formas diferentes - por exemplo, podem vir
-        # apenas pedaços de um quadro, ou um pedaço de quadro seguido de um
-        # pedaço de outro, ou vários quadros de uma vez só.
-        pass
+        """
+        Método para receber e reconstruir quadros SLIP corretamente.
+
+        - Os bytes podem chegar de forma fragmentada ou juntos.
+        - Deve reconstruir os quadros completos e chamar `self.callback(datagrama)`.
+        - Descartar datagramas vazios (quadros que só contêm 0xC0).
+        - Lidar com as sequências de escape 0xDB 0xDC → 0xC0 e 0xDB 0xDD → 0xDB.
+        """
+
+        END = b'\xC0'  # Delimitador de quadro
+        ESC = b'\xDB'  # Byte de escape
+        ESC_END = b'\xDB\xDC'  # Representação escapada de 0xC0
+        ESC_ESC = b'\xDB\xDD'  # Representação escapada de 0xDB
+
+        # Buffer para armazenar os dados recebidos até formar um quadro completo
+        if not hasattr(self, "buffer"):
+            self.buffer = b""
+
+        # Adicionar os novos dados ao buffer
+        self.buffer += dados
+
+        while END in self.buffer:
+            # Separar o primeiro quadro completo
+            quadro, _, self.buffer = self.buffer.partition(END)
+
+            # Ignorar quadros vazios
+            if not quadro:
+                continue
+
+            # Tratar as sequências de escape dentro do quadro
+            quadro = quadro.replace(ESC_END, END).replace(ESC_ESC, ESC)
+
+            # Repassar o quadro processado à camada superior
+            try:
+                if self.callback:
+                    self.callback(quadro)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+
