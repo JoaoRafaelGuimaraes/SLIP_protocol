@@ -31,8 +31,20 @@ class CamadaEnlace:
         fornecido como string (no formato x.y.z.w). A camada de enlace se
         responsabilizará por encontrar em qual enlace se encontra o next_hop.
         """
-        # Encontra o Enlace capaz de alcançar next_hop e envia por ele
-        self.enlaces[next_hop].enviar(datagrama)
+        # Definição dos bytes especiais do protocolo SLIP
+        END = b'\xC0'  # Delimitador de quadro
+        ESC = b'\xDB'  # Byte de escape
+        ESC_END = b'\xDB\xDC'  # Representação de 0xC0 dentro do datagrama
+        ESC_ESC = b'\xDB\xDD'  # Representação de 0xDB dentro do datagrama
+        
+        # Substituir os bytes especiais no datagrama para evitar ambiguidades
+        datagrama = datagrama.replace(ESC, ESC_ESC).replace(END, ESC_END)
+        
+        # Adicionar os delimitadores de início e fim ao datagrama
+        quadro = END + datagrama + END
+        
+        # Encontra o Enlace capaz de alcançar next_hop e envia o quadro por ele
+        self.enlaces[next_hop].enviar(quadro)
 
     def _callback(self, datagrama):
         if self.callback:
